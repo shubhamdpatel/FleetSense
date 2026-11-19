@@ -1,0 +1,19 @@
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# Dataset files - do not upload to Git
+data/raw/
+data/clean/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
