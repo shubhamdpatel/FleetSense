@@ -1,4 +1,3 @@
-
 # Python
 __pycache__/
 *.py[cod]
@@ -17,3 +16,7 @@ data/clean/
 
 # OS files
 .DS_Store
+
+# DuckDB database files
+*.duckdb
+*.duckdb.wal
