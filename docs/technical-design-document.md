@@ -126,7 +126,9 @@ This dimension will support pickup- and drop-off-zone analysis.
 
 ### 4.3 `dim_calendar`
 
-Stores calendar-date attributes.
+Stores calendar-date attributes and shift classification.
+
+**Grain:** One row per calendar date per shift.
 
 Proposed fields:
 
@@ -135,21 +137,34 @@ Proposed fields:
 - Weekday.
 - Month.
 - Year.
+- Day name.
+- Month name.
+- Shift (`Day` or `Night`).
 
-Hour-of-day and any shift classification will be derived from the trip pickup timestamp. They will not be treated as date-level attributes.
+The calendar covers January 1 to December 31, 2025, with two rows per date: one for Day and one for Night.
 
-### 4.4 `hourly_zone_demand`
+Shift classification is based on the trip pickup time:
 
-Stores aggregated demand by date, pickup zone, and hour.
+- **Night:** 22:00–05:59.
+- **Day:** 06:00–21:59.
+
+When joining trip records to this dimension, both the calendar date and shift must be used to avoid duplicating trip records.
+
+### 4.4 `hourly_demand`
+
+Stores aggregated taxi demand by pickup date, shift, pickup hour, and pickup zone.
 
 Proposed fields:
 
-- Date.
-- Hour.
+- Trip date.
+- Shift (`Day` or `Night`).
+- Pickup hour.
 - Pickup zone ID.
 - Total trips.
 
-Revenue measures may also be included once the revenue definition is approved and consistently implemented.
+Only valid trips with pickup timestamps between January 1, 2025, and January 1, 2026 (exclusive) are included.
+
+Demand is calculated separately for Day and Night shifts. Daily totals are not blended across shifts.
 
 ### 4.5 Data flow
 
@@ -157,24 +172,86 @@ Revenue measures may also be included once the revenue definition is approved an
 
 ## 5. Metric Definitions
 
-Business metrics will be defined centrally and reused across SQL transformations, analysis, tests, and dashboard components.
+Business metrics are defined centrally in `metrics/metrics.py` and reused across SQL transformations, Python analysis, automated tests, and dashboard components.
 
-| Metric | Proposed definition |
+All core metrics use validated records from `clean_trips` and are restricted to the 2025 reporting period.
+
+| Metric | Definition |
 |---|---|
 | Total Trips | Count of valid trip records. |
 | Base Fare Revenue | Sum of `fare_amount` for valid trips. |
-| Average Fare | Sum of `fare_amount` divided by the number of valid trips included in the calculation. |
-| Trip Duration | Difference between drop-off and pickup timestamps, expressed in minutes. |
-| Hourly Demand | Count of valid trips grouped by pickup zone and pickup hour. |
-| Utilization Proxy | Trip activity by zone and time period, used as an indicator of demand. |
+| Average Fare | Base fare revenue divided by total trips. |
+| Average Trip Duration | Average difference between drop-off and pickup timestamps, expressed in minutes. |
+| Total Trip Duration | Sum of trip durations in minutes. |
+| Hourly Demand | Count of valid trips grouped by pickup date, shift, pickup hour, and pickup zone. |
+| Utilization Proxy | Trip activity by zone, shift, and hour, used as an indicator of demand. |
 
-**Utilization limitation:** The available trip records do not establish how many vehicles were available or the total time each vehicle was available for service. Therefore, trip activity will be described as a demand or activity proxy, not as actual fleet utilization.
+**Reporting period:** January 1, 2025, to December 31, 2025.
 
-### 5.1 Client-specific analysis
+### 5.1 Client-specific analysis – Day and Night Shifts
 
-The team must include the business question assigned to its client in the Team Workspace. The exact requirement and its acceptance criteria must be copied into this section after verification.
+The client requires trips starting between 22:00 and 05:59 to be treated as a separate shift. Day and Night results must be reported separately because night drivers are planned using their own demand and performance figures.
 
-If the assigned requirement includes a day/night or shift comparison, the team will document the approved time boundaries and classify trips consistently using pickup time. No shift definition is considered final until it is confirmed against the assigned requirement.
+Shift classification is based on the pickup timestamp:
+
+| Shift | Pickup time |
+|---|---|
+| Night | 22:00–05:59 |
+| Day | 06:00–21:59 |
+
+The reporting date is the actual calendar date of pickup.
+
+The following requirements are implemented:
+
+- The `dim_calendar` table contains separate Day and Night rows for every date in 2025.
+- Hourly demand is grouped by pickup date, shift, hour, and pickup zone.
+- Core metrics are calculated separately for Day and Night.
+- SQL and Python metric calculations are cross-checked.
+- Automated tests verify shift boundaries and ensure that combined Day and Night trip counts match the total trip count.
+
+### 5.1.1 Implemented 2025 shift metrics
+
+The following results were calculated from the validated 2025 trip records.
+
+| Metric | Day | Night |
+|---|---:|---:|
+| Total Trips | 29,505,063 | 5,578,272 |
+| Base Fare Revenue | $581,435,025.79 | $112,926,172.67 |
+| Average Fare | $19.71 | $20.24 |
+| Average Trip Duration | 17.93 min | 15.14 min |
+| Total Trip Duration | 529,038,830.67 min | 84,436,128.33 min |
+
+**Key observations:**
+
+- Day trips account for approximately 84.1% of total trips.
+- Night trips account for approximately 15.9% of total trips.
+- Night average fare is approximately 2.7% higher than Day average fare.
+- Night trips have an average duration approximately 2.79 minutes shorter than Day trips.
+
+These are descriptive comparisons, not measures of profit or driver productivity.
+
+### 5.1.2 Utilization limitation
+
+The available trip records do not establish how many vehicles were available or the total time each vehicle was available for service. Therefore, trip activity is described as a demand or activity proxy, not actual fleet utilization.
+
+### 5.1.3 Implementation and validation
+
+The shift-specific metric logic is implemented in:
+
+- `metrics/metrics.py`
+- `sql/warehouse/dimensions.sql`
+- `sql/warehouse/hourly_demand.sql`
+- `tests/test_metrics.py`
+
+Validation results:
+
+- Calendar dimension: 730 rows (365 dates × 2 shifts).
+- Day trips: 29,505,063.
+- Night trips: 5,578,272.
+- Combined trips: 35,083,335.
+- Automated tests: 6 passed.
+
+The combined Day and Night trip count matches the total valid 2025 trip count.
 
 ### 5.2 CR-1: Revenue with and without tolls and surcharges
 
@@ -216,6 +293,11 @@ The analysis will cover:
 4. Trip duration and fare distributions.
 5. Unusual values and anomalies in the data.
 6. Relevant comparisons required by the assigned client question.
+7. Day and Night demand comparisons.
+8. Hourly demand patterns within each shift.
+9. Monthly and weekday/weekend demand comparisons by shift.
+10. Highest- and lowest-demand pickup zones separately for Day and Night.
+11. Revenue and trip-duration comparisons between Day and Night shifts.
 
 Anomalies will be investigated. Any exclusion, correction, or retention decision will be documented with its reason.
 
