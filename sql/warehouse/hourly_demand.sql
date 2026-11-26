@@ -11,6 +11,7 @@ SELECT
 FROM clean_trips
 WHERE pickup_datetime >= TIMESTAMP '2025-01-01 00:00:00'
   AND pickup_datetime < TIMESTAMP '2026-01-01 00:00:00'
+  AND pickup_location_id IS NOT NULL
 GROUP BY
     CAST(pickup_datetime AS DATE),
     EXTRACT(HOUR FROM pickup_datetime),
