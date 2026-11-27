@@ -11,6 +11,7 @@ from metrics.metrics import (
     get_monthly_seasonality,
     get_zone_demand,
     get_daily_demand_anomaly_candidates,
+    get_zone_revenue_comparison,
 )
 
 
@@ -190,6 +191,42 @@ def plot_daily_anomalies(anomalies):
 
     print(f"Saved: {output_path}")
 
+def plot_zone_revenue_comparison(revenue):
+    data = revenue.nlargest(
+        10,
+        "revenue_difference"
+    ).sort_values("revenue_difference")
+
+    data = data.copy()
+    data["additional_revenue_millions"] = (
+        data["revenue_difference"] / 1_000_000
+    )
+
+    plt.figure(figsize=(12, 7))
+
+    bars = plt.barh(
+        data["zone"],
+        data["additional_revenue_millions"],
+    )
+
+    for bar, value in zip(
+        bars,
+        data["additional_revenue_millions"]
+    ):
+        plt.text(
+            bar.get_width(),
+            bar.get_y() + bar.get_height() / 2,
+            f" ${value:.2f}M",
+            va="center",
+            fontsize=9,
+        )
+
+    plt.title("Top 10 Pickup Zones by Additional Revenue - 2025")
+    plt.xlabel("Additional Revenue (USD Million)")
+    plt.ylabel("Pickup Zone")
+    plt.grid(axis="x", alpha=0.3)
+
+    save_chart("zone_revenue_comparison.png")
 
 def main():
     print("Connecting to FleetSense warehouse...")
@@ -204,6 +241,7 @@ def main():
         monthly = get_monthly_seasonality(con)
         zones = get_zone_demand(con, limit=10)
         anomalies = get_daily_demand_anomaly_candidates(con)
+        revenue = get_zone_revenue_comparison(con)
 
         print("Generating charts...")
 
@@ -213,8 +251,9 @@ def main():
         plot_zone_demand(zones, "Day")
         plot_zone_demand(zones, "Night")
         plot_daily_anomalies(anomalies)
+        plot_zone_revenue_comparison(revenue)
 
-        print("\nAll six charts generated successfully.")
+        print("\nAll seven charts generated successfully.")
 
     finally:
         con.close()

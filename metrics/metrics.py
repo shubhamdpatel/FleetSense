@@ -301,6 +301,7 @@ def get_utilization_proxy(
             trip_hour
     """).fetchdf()
 
+
 def get_hourly_seasonality(
     con: duckdb.DuckDBPyConnection,
 ):
@@ -354,6 +355,7 @@ def get_hourly_seasonality(
 
         ORDER BY hours.trip_hour
     """).fetchdf()
+
 
 def get_weekday_seasonality(
     con: duckdb.DuckDBPyConnection,
@@ -451,6 +453,7 @@ def get_weekday_seasonality(
             CASE WHEN shift = 'Day' THEN 1 ELSE 2 END
     """).fetchdf()
 
+
 def get_monthly_seasonality(
     con: duckdb.DuckDBPyConnection,
 ):
@@ -544,6 +547,7 @@ def get_monthly_seasonality(
             CASE WHEN shift = 'Day' THEN 1 ELSE 2 END
     """).fetchdf()
 
+
 def get_zone_demand(con: duckdb.DuckDBPyConnection, limit: int = 10):
     """Return top and bottom pickup zones separately for Day and Night."""
 
@@ -621,6 +625,7 @@ def get_zone_demand(con: duckdb.DuckDBPyConnection, limit: int = 10):
             rank
     """).fetchdf()
 
+
 def get_daily_demand_by_shift(
     con: duckdb.DuckDBPyConnection,
 ):
@@ -685,6 +690,7 @@ def get_daily_demand_by_shift(
             CASE WHEN shifts.shift = 'Day' THEN 1 ELSE 2 END
     """).fetchdf()
 
+
 def get_daily_demand_anomaly_candidates(
     con: duckdb.DuckDBPyConnection,
     threshold: float = 3.0,
@@ -734,6 +740,7 @@ def get_daily_demand_anomaly_candidates(
         ascending=False,
     )
 
+
 def get_hourly_anomaly_investigation(con):
     """Compare hourly demand on daily anomaly candidates
     with the usual demand for the same weekday, hour and shift.
@@ -745,7 +752,7 @@ def get_hourly_anomaly_investigation(con):
         WITH calendar_hours AS (
             SELECT
                 CAST(d.calendar_date AS DATE) AS trip_date,
-                EXTRACT(DOW FROM d.calendar_date) AS weekday_number,
+                EXTRACT(ISODOW FROM d.calendar_date) AS weekday_number,
                 STRFTIME(d.calendar_date, '%A') AS weekday,
                 h.trip_hour,
                 CASE
@@ -824,3 +831,71 @@ def get_hourly_anomaly_investigation(con):
         key=lambda values: values.abs(),
         ascending=False,
     )
+
+
+def get_zone_revenue_comparison(
+    con: duckdb.DuckDBPyConnection,
+):
+    """Compare revenue with and without tolls and surcharges by pickup zone.
+
+    Uses 2025 clean trips only.
+    MTA tax and tips are excluded from the surcharge calculation.
+    """
+
+    return con.execute(f"""
+        SELECT
+            z.LocationID AS zone_id,
+            z.Borough AS borough,
+            z.Zone AS zone,
+
+            COUNT(*) AS total_trips,
+
+            ROUND(
+                SUM(f.fare_amount),
+                2
+            ) AS revenue_without_charges,
+
+            ROUND(
+                SUM(
+                    f.fare_amount
+                    + COALESCE(f.tolls_amount, 0)
+                    + COALESCE(f.extra, 0)
+                    + COALESCE(f.improvement_surcharge, 0)
+                    + COALESCE(f.congestion_surcharge, 0)
+                    + COALESCE(f.airport_fee, 0)
+                    + COALESCE(f.cbd_congestion_fee, 0)
+                ),
+                2
+            ) AS revenue_with_charges,
+
+            ROUND(
+                SUM(
+                    COALESCE(f.tolls_amount, 0)
+                    + COALESCE(f.extra, 0)
+                    + COALESCE(f.improvement_surcharge, 0)
+                    + COALESCE(f.congestion_surcharge, 0)
+                    + COALESCE(f.airport_fee, 0)
+                    + COALESCE(f.cbd_congestion_fee, 0)
+                ),
+                2
+            ) AS revenue_difference
+
+        FROM {SOURCE_TABLE} c
+
+        INNER JOIN fact_trips f
+            ON c.trip_hash = f.trip_hash
+
+        INNER JOIN dim_zones z
+            ON c.pickup_location_id = z.LocationID
+
+        WHERE c.pickup_datetime >= TIMESTAMP '{START_DATE}'
+          AND c.pickup_datetime < TIMESTAMP '{END_DATE}'
+
+        GROUP BY
+            z.LocationID,
+            z.Borough,
+            z.Zone
+
+        ORDER BY
+            revenue_difference DESC
+    """).fetchdf()
